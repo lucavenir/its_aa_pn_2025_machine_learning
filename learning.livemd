@@ -56,18 +56,88 @@ end
 
 {mileage, prices} = Data.data()
 
-
-Tucan.scatter([x: mileage, y: prices], "x", "y", width: 630, height: 630, filled: true)
+Tucan.scatter([mileage: mileage, prices: prices], "mileage", "prices",
+  width: 800,
+  height: 760,
+  filled: true
+)
 |> Tucan.Grid.set_enabled(false)
-|> Tucan.set_title("Scatterplot of Generated Data", offset: 20)
+|> Tucan.set_title("How prices change wrt mileage", offset: 20)
 ```
 
 TODO
 
 ```elixir
-
+%LR{intercept: intercept, coefficients: coefficients} = model = LR.fit(mileage, prices)
+[m] = Nx.to_flat_list(coefficients)
+[q] = Nx.to_flat_list(intercept)
+{m,q}
 ```
 
 ```elixir
+x1 = 0
+y1 = x1 * m + q
+x2 = 135_000
+y2 = x2 * m + q
+{{x1, y1}, {x2, y2}}
+```
 
+```elixir
+Tucan.layers([
+  Tucan.scatter([mileage: mileage, prices: prices], "mileage", "prices",
+    width: 800,
+    height: 760,
+    filled: true
+  ),
+  Tucan.lineplot([x: [x1, x2], y: [y1, y2]], "x", "y")
+])
+```
+
+```elixir
+input = Kino.Input.text("dammi il chilometraggio")
+```
+
+```elixir
+i = Kino.Input.read(input)
+{kms, _} = Integer.parse(i)
+
+result = LR.predict(model, Nx.tensor([[kms]]))
+[predicted] = Nx.to_flat_list(result)
+
+IO.puts(predicted)
+
+Tucan.layers([
+  Tucan.scatter([mileage: mileage, prices: prices], "mileage", "prices",
+    width: 800,
+    height: 500,
+    filled: true
+  ),
+  Tucan.lineplot([x: [x1, x2], y: [y1, y2]], "x", "y"),
+  Tucan.scatter([x: [kms], y: [predicted]], "x", "y", point_color: "red", point_size: 100)
+])
+```
+
+```elixir
+%PR{coefficients: pr_coeff, intercept: pr_intercept} =
+  pr_model = PR.fit(mileage, prices, degree: 2)
+
+x_p = 0..130_000
+
+x_vector =
+  x_p
+  |> Enum.map(&Function.identity/1)
+  |> Nx.tensor()
+  |> Nx.reshape({:auto, 1})
+
+y_p = PR.predict(pr_model, x_vector)
+
+Tucan.layers([
+  Tucan.scatter([mileage: mileage, prices: prices], "mileage", "prices",
+    width: 800,
+    height: 500,
+    filled: true
+  ),
+  Tucan.lineplot([x: [x1, x2], y: [y1, y2]], "x", "y"),
+  Tucan.lineplot([y: y_p, x: x_vector], "x", "y", line_color: "green")
+])
 ```
