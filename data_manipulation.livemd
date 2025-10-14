@@ -36,6 +36,7 @@ grades = [
   %{name: "costante", grade: 30, cum_laude: true},
   %{name: "cinello", grade: 9},
   %{name: "verdi", grade: 20.5},
+  %{name: "arancioni", grade: nil},
   %{name: "quaglieri", grade: 30, cum_laude: false},
   %{name: "pavan", grade: 28},
   %{name: "bernardinis", grade: 29},
@@ -59,59 +60,38 @@ Elixir's `Enum` module is the Swiss Army knife for working with any enumerable d
 For smaller datasets that can comfortably fit in memory, it provides a powerful, functional, and highly readable way to perform complex transformations.
 
 ```elixir
-clean = Enum.filter(grades, fn person -> is_integer(person.grade) end)
-```
+#  a quick refesher on functions
+defmodule FilterUtils do
+  def integers_only(%{grade: x}), do: is_integer(x)
 
-```elixir
-with_new =
-  Enum.map(
-    clean,
-    fn person -> Map.put(person, :to_30, 30 - person.grade) end
-  )
-```
+  def is_clean(%{i_giocatori: _}), do: false
+  def is_clean(_x), do: true
 
-```elixir
-passing = Enum.reject(with_new, fn person -> person.grade < 18 end)
-```
+  def add_to_30(%{grade: x} = map) do
+    Map.put(map, :to_30, 30 - x)
+  end
 
-```elixir
-sorted =
-  Enum.sort_by(
-    passing,
-    fn person -> {person.grade, Map.get(person, :cum_laude)} end,
-    :desc
-  )
-```
+  def not_good_enough(%{grade: x}), do: x < 18
 
-```elixir
-best = List.first(sorted)
+  def sort(%{grade: x, cum_laude: l}), do: {x, l}
+  def sort(%{grade: x}), do: x
+end
+
+grades
+|> Enum.filter(&FilterUtils.integers_only/1)
+|> Enum.filter(&FilterUtils.is_clean/1)
+|> Enum.map(&FilterUtils.add_to_30/1)
+|> Enum.reject(&FilterUtils.not_good_enough/1)
+|> Enum.sort_by(&FilterUtils.sort/1, :desc)
+|> List.first()
+|> dbg()
 ```
 
 ### The beauty of functional programming
 
 Did you know that all of the above can be written with... just a few lines?
 
-```elixir
-[
-  %{name: "venir", grade: 27},
-  %{name: "bortolotti", grade: 22.5},
-  %{name: "costante", grade: 30, cum_laude: true},
-  %{name: "cinello", grade: 9},
-  %{name: "verdi", grade: 20.5},
-  %{name: "quaglieri", grade: 30, cum_laude: false},
-  %{name: "pavan", grade: 28},
-  %{name: "bernardinis", grade: 29},
-  %{name: "taboga", grade: 30, cum_laude: true},
-  %{name: "rossi", grade: 19.9},
-  %{name: "bianchi", grade: 17},
-  %{name: "cassano", grade: 1, i_giocatori: "più forti che tu hai giocato"}
-]
-|> Enum.filter(&is_integer(&1.grade))
-|> Enum.map(&Map.put(&1, :to_30, 30 - &1.grade))
-|> Enum.reject(&(&1.grade < 18))
-|> Enum.sort_by(&{&1.grade, Map.get(&1, :cum_laude)}, :desc)
-|> List.first()
-```
+<!-- livebook:{"break_markdown":true} -->
 
 ### Exercise 1: basic ops on lists
 
@@ -125,13 +105,14 @@ Use the List module functions to solve the following:
 numbers = [1, 2, 3, 4, 5]
 
 # 1. Get the first element
-first = # TODO
+first = List.first(numbers)
 
 # 2. Get the last element
-last = # TODO
+last = List.last(numbers)
 
 # 3. Delete the element at index 2 (the number 3)
-list_without_3 = # TODO
+list_without_3 = List.delete(numbers, 3)
+list_without_3 = Enum.reject(numbers, fn x -> x == 3 end)
 
 IO.puts("First: #{inspect(first)}")
 IO.puts("Last: #{inspect(last)}")
@@ -168,16 +149,13 @@ product = %{"id" => 101, :status => "in_stock"}
 IO.puts("ID (bracket): #{product["id"]}")
 
 # 1. Create the person map
-person = # TODO
+person = %{name: "Luca", age: 32, city: "Udine"}
 
-# 2. Access occupation using map.key syntax
-occupation = # TODO
-
-# 3. Fetch the name safely (it returns the value directly or raises an error if the key is missing)
-name = # TODO
-
-IO.puts("Occupation: #{inspect(occupation)}")
-IO.puts("Name from fetch!: #{inspect(name)}")
+# 2. Access age
+age = person.age
+age = person[:ague]
+age = Map.get(person, :ague) |> IO.inspect()
+age = Map.fetch(person, :ague)
 ```
 
 ### Exercise 3: map, filter, sort and find data
