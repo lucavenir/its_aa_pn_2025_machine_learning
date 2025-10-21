@@ -1,228 +1,28 @@
 # Data manipulation in Elixir
 
-## Elixir's Map
-
-All languages have some sort of "hash" enumerable we can exploit as a key-value pair data structure.
-
-Dart has `Map`, Ruby has `Hash`. Elixir has maps as a built-in type.
-
-Defining a map is quite simple.
-
 ```elixir
-map = %{"key" => "value"}
+Mix.install(
+  [
+    {:kino_bumblebee, "~> 0.5.0"},
+    {:exla, ">= 0.0.0"}
+  ],
+  config: [nx: [default_backend: EXLA.Backend]]
+)
 ```
 
-Maps can hold any type. As we speak, Elixir is a dynamically typed language (but that might slightly change in the future).
+## Ready-Made models
 
-Maps are useful, because they can represent and _model_ external data. Since map can be nested, we get to represent even the most complicated scenarios.
+Training actual models is hard.
 
-```elixir
-grades = %{
-  "venir" => 29.9,
-  "bortolotti" => 22.5,
-  "costante" => %{
-    "grade" => 30,
-    "cum_laude" => true
-  }
-}
-```
+It requires:
 
-Representing data might sound trivial at first, but if you closely look at the above, you probably already know that it's best to represent the students with a `List` rather than a single `Map`:
+* high know how
+* a lot of time
+* quite the computing power
+* tons of data
 
-```elixir
-grades = [
-  %{name: "venir", grade: 27},
-  %{name: "bortolotti", grade: 22.5},
-  %{name: "costante", grade: 30, cum_laude: true},
-  %{name: "cinello", grade: 9},
-  %{name: "verdi", grade: 20.5},
-  %{name: "arancioni", grade: nil},
-  %{name: "quaglieri", grade: 30, cum_laude: false},
-  %{name: "pavan", grade: 28},
-  %{name: "bernardinis", grade: 29},
-  %{name: "taboga", grade: 30, cum_laude: true},
-  %{name: "rossi", grade: 19.9},
-  %{name: "bianchi", grade: 17},
-  %{name: "cassano", grade: 1, i_giocatori: "più forti che tu hai giocato"}
-]
-```
+So, can we exploit open-source and already available models, even tho we don't really understand them fully?
 
-Choosing the best data structure for the job is the first step towards data science.
+## Neural Networks
 
-Remember: data is **everything**.
-
-And it all starts with how we structure it.
-
-## Elixir's Enum
-
-Elixir's `Enum` module is the Swiss Army knife for working with any enumerable data type (lists, maps, etc.).
-
-For smaller datasets that can comfortably fit in memory, it provides a powerful, functional, and highly readable way to perform complex transformations.
-
-```elixir
-#  a quick refesher on functions
-defmodule FilterUtils do
-  def integers_only(%{grade: x}), do: is_integer(x)
-
-  def is_clean(%{i_giocatori: _}), do: false
-  def is_clean(_x), do: true
-
-  def add_to_30(%{grade: x} = map) do
-    Map.put(map, :to_30, 30 - x)
-  end
-
-  def not_good_enough(%{grade: x}), do: x < 18
-
-  def sort(%{grade: x, cum_laude: l}), do: {x, l}
-  def sort(%{grade: x}), do: x
-end
-
-grades
-|> Enum.filter(&FilterUtils.integers_only/1)
-|> Enum.filter(&FilterUtils.is_clean/1)
-|> Enum.map(&FilterUtils.add_to_30/1)
-|> Enum.reject(&FilterUtils.not_good_enough/1)
-|> Enum.sort_by(&FilterUtils.sort/1, :desc)
-|> List.first()
-|> dbg()
-```
-
-### The beauty of functional programming
-
-Did you know that all of the above can be written with... just a few lines?
-
-<!-- livebook:{"break_markdown":true} -->
-
-### Exercise 1: basic ops on lists
-
-Use the List module functions to solve the following:
-
-1. Find the first element of numbers.
-2. Find the last element of numbers.
-3. Delete the element at index 2 (which is 3) from numbers.
-
-```elixir
-numbers = [1, 2, 3, 4, 5]
-
-# 1. Get the first element
-first = List.first(numbers)
-
-# 2. Get the last element
-last = List.last(numbers)
-
-# 3. Delete the element at index 2 (the number 3)
-list_without_3 = List.delete(numbers, 3)
-list_without_3 = Enum.reject(numbers, fn x -> x == 3 end)
-
-IO.puts("First: #{inspect(first)}")
-IO.puts("Last: #{inspect(last)}")
-IO.puts("List without 3: #{inspect(list_without_3)}")
-```
-
-### Exercise 2: maps
-
-Maps are Elixir's hash tables. They store data in key-value pairs.
-
-* Maps are efficient for lookup, insertion, and deletion by key (O(1) average).
-* Keys can be any Elixir term, but atoms are the most common and efficient choice for map keys, especially when you know the keys beforehand.
-
-Syntax for Maps
-
-* Maps are created with %{}, e.g., %{key1: value1, key2: value2}.
-* When all keys are atoms, you can use the shortcut access syntax: map.key.
-* The Map module provides functions for safe access and manipulation.
-
-Now:
-
-1. Create a map named person with the atom keys :name and :occupation.
-2. Access the occupation using the map.key syntax.
-3. Use `Map.fetch!/2` to safely retrieve the value associated with the :name key.
-4. Explore other apis, such as `Map.get/3` or `Map.put/3`
-
-```elixir
-# Atom keys
-user = %{name: "Alice", age: 30, city: "Paris"}
-IO.puts("Name (shortcut): #{user.name}")
-
-# Non-atom keys require bracket syntax
-product = %{"id" => 101, :status => "in_stock"}
-IO.puts("ID (bracket): #{product["id"]}")
-
-# 1. Create the person map
-person = %{name: "Luca", age: 32, city: "Udine"}
-
-# 2. Access age
-age = person.age
-age = person[:ague]
-age = Map.get(person, :ague) |> IO.inspect()
-age = Map.fetch(person, :ague)
-```
-
-### Exercise 3: map, filter, sort and find data
-
-Let's imagine we have a list of maps representing user purchase data.
-
-Our goal is to filter for active users and calculate a new feature: the number of days since their last purchase.
-
-```elixir
-raw_data = [
-  %{user_id: 1, age: 25, last_purchase_at: nil},
-  %{user_id: 2, age: nil, last_purchase_at: ~D[2025-10-01]},
-  %{user_id: 3, age: 32, last_purchase_at: ~D[2025-08-20]},
-  %{user_id: 4, age: 45, last_purchase_at: ~D[2025-10-11]},
-  %{user_id: 5, age: 60, last_purchase_at: ~D[2025-01-15]},
-  %{user_id: 6, age: 42, last_purchase_at: nil},
-  %{user_id: 7, age: nil, last_purchase_at: ~D[2024-08-20]},
-  %{user_id: 8, age: 78, last_purchase_at: ~D[2025-07-11]},
-  %{user_id: 9, age: 25, last_purchase_at: ~D[2025-04-19]},
-  %{user_id: 10, age: nil, last_purchase_at: ~D[2025-06-11]},
-  %{user_id: 11, age: 35, last_purchase_at: ~D[2025-05-31]},
-  %{user_id: 12, age: nil, last_purchase_at: ~D[2025-04-30]},
-  %{user_id: 13, age: 37, last_purchase_at: ~D[2025-06-20]},
-  %{user_id: 14, age: 25, last_purchase_at: nil},
-  %{user_id: 15, age: 50, last_purchase_at: ~D[2025-08-15]},
-  %{user_id: 16, age: 72, last_purchase_at: ~D[2024-08-23]},
-  %{user_id: 17, age: nil, last_purchase_at: ~D[2024-08-20]},
-  %{user_id: 18, age: 28, last_purchase_at: ~D[2025-06-29]},
-  %{user_id: 19, age: 18, last_purchase_at: ~D[2025-05-19]},
-  %{user_id: 20, age: nil, last_purchase_at: ~D[2025-09-11]},
-  %{user_id: 21, age: 25, last_purchase_at: nil},
-  %{user_id: 20, age: nil, last_purchase_at: ~D[2025-07-11]},
-  %{user_id: 22, age: nil, last_purchase_at: ~D[2025-11-01]},
-  %{user_id: 23, age: 18, last_purchase_at: ~D[2025-09-20]},
-  %{user_id: 24, age: 35, last_purchase_at: ~D[2025-10-12]},
-  %{user_id: 25, age: 61, last_purchase_at: ~D[2025-01-16]},
-  %{user_id: 26, age: 62, last_purchase_at: nil},
-  %{user_id: 27, age: nil, last_purchase_at: ~D[2024-08-20]},
-  %{user_id: 28, age: 88, last_purchase_at: ~D[2025-07-18]},
-  %{user_id: 29, age: 29, last_purchase_at: ~D[2025-04-29]},
-  %{user_id: 30, age: nil, last_purchase_at: ~D[2025-12-11]},
-  %{user_id: 31, age: nil, last_purchase_at: ~D[2025-01-11]},
-  %{user_id: 32, age: nil, last_purchase_at: ~D[2025-05-31]},
-  %{user_id: 33, age: 37, last_purchase_at: ~D[2025-05-21]},
-  %{user_id: 34, age: 20, last_purchase_at: nil},
-  %{user_id: 35, age: 19, last_purchase_at: nil},
-  %{user_id: 36, age: 47, last_purchase_at: ~D[2024-12-23]},
-  %{user_id: 37, age: nil, last_purchase_at: ~D[2024-12-20]},
-  %{user_id: 38, age: 39, last_purchase_at: ~D[2025-08-29]},
-  %{user_id: 39, age: 46, last_purchase_at: ~D[2025-08-19]}
-]
-
-today = Date.utc_today()
-
-# TODO here
-```
-
-#### TODO:
-
-1. Filter out data with missing fields
-2. Filter out data with invalid fields (e.g. future dates)
-3. Compute `days_since_last_purchase`
-4. Filter out inactive users (meaning: `days_since_last_purchase` farther than 120 days)
-5. Sort by `last_purchase_at`, and when equal, put the youngest first
-6. Find the youngest
-7. **Bonus**: organize your code using a Module
-
-```elixir
-# TODO
-```
+You can read the theory, if you're curious, but today: practice only!
