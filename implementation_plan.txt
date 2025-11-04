@@ -1,0 +1,376 @@
+================================================================================
+IMPLEMENTATION PLAN: Quiz Application with Expert Feedback
+================================================================================
+
+PROJECT OVERVIEW
+----------------
+A server-rendered, real-time quiz application built with Elixir/Phoenix LiveView
+and Ash Framework. The system presents 10 questions with multiple-choice answers
+and mandatory text justifications, then provides comprehensive feedback comparing
+user reasoning against expert rationales.
+
+TECHNOLOGY STACK
+----------------
+- Elixir/OTP (BEAM VM)
+- Phoenix Framework
+- Phoenix LiveView (real-time UI)
+- Ash Framework (domain modeling & business logic)
+- PostgreSQL 18 (persistence)
+- Tailwind CSS + daisyUI (styling)
+
+================================================================================
+PHASE 1: PROJECT SETUP & INFRASTRUCTURE
+================================================================================
+
+1.1 Create Phoenix Application
+   - Generate new Phoenix app with LiveView support
+   - Configure PostgreSQL database connection
+   - Set up Tailwind CSS + daisyUI
+   - Verify basic Phoenix server runs
+
+1.2 Install & Configure Ash Framework
+   - Add ash, ash_phoenix, ash_postgres dependencies
+   - Create Ash API module (e.g., MyApp.Quiz)
+   - Configure ash_postgres data layer
+   - Set up basic Ash resource structure
+
+1.3 Database Setup
+   - Generate initial migration structure
+   - Configure Ecto/Postgres through Ash
+   - Verify database connectivity
+
+================================================================================
+PHASE 2: DOMAIN MODELING (ASH RESOURCES)
+================================================================================
+
+2.1 Define Question Resource (Quiz.Question)
+   Attributes:
+   - question_id (string, primary key) - e.g., "q1", "q2"
+   - question_text (text) - The full question text
+   - options (array of strings, length: 4) - Four answer choices
+   - correct_option_index (integer, 0-3) - Index of correct answer
+   - expert_rationale (text) - Pre-authored explanation
+   - display_order (integer) - For ordering questions (1-10)
+   
+   Actions:
+   - :read - Fetch all questions for quiz display
+   - :create - Seed questions (admin/setup only)
+   
+   Validations:
+   - options must have exactly 4 elements
+   - correct_option_index must be 0-3
+   - All text fields required
+
+2.2 Define QuizAttempt Resource (Quiz.QuizAttempt)
+   Attributes:
+   - id (uuid, primary key)
+   - started_at (utc_datetime_usec)
+   - submitted_at (utc_datetime_usec, nullable)
+   - score (integer, nullable) - Final score (0-10)
+   - score_percentage (float, calculated) - score/10 * 100
+   
+   Relationships:
+   - has_many :answers (Quiz.Answer)
+   
+   Actions:
+   - :start_quiz - Create new attempt, set started_at
+   - :submit_quiz - Calculate score, set submitted_at
+   - :read - Fetch attempt with answers for results page
+   
+   Calculations:
+   - score_percentage - Derived from score attribute
+
+2.3 Define Answer Resource (Quiz.Answer)
+   Attributes:
+   - id (uuid, primary key)
+   - selected_option_index (integer, 0-3)
+   - user_justification (text)
+   - is_correct (boolean, calculated)
+   
+   Relationships:
+   - belongs_to :quiz_attempt (Quiz.QuizAttempt)
+   - belongs_to :question (Quiz.Question)
+   
+   Actions:
+   - :create - Save user's answer
+   - :update - Allow editing before submission
+   - :read - Fetch for results display
+   
+   Calculations:
+   - is_correct - Compare selected_option_index with question.correct_option_index
+   
+   Validations:
+   - selected_option_index must be 0-3
+   - user_justification must have at least 1 character
+   - Both fields required
+
+2.4 Database Migrations
+   - Generate migrations from Ash resources
+   - Run migrations to create tables
+   - Verify schema matches domain model
+
+================================================================================
+PHASE 3: SEED DATA (10 QUESTIONS)
+================================================================================
+
+3.1 Create Seed Script
+   - Define all 10 questions with:
+     * Unique question_id (q1-q10)
+     * Full question_text
+     * 4 options per question
+     * correct_option_index
+     * comprehensive expert_rationale
+     * display_order (1-10)
+   
+3.2 Load Questions into Database
+   - Use Ash.create! to insert questions
+   - Verify all 10 questions exist
+   - Test reading questions via Ash API
+
+================================================================================
+PHASE 4: QUIZ INTERFACE (LIVEVIEW - TAKING THE QUIZ)
+================================================================================
+
+4.1 Create QuizLive.Index LiveView
+   Route: /quiz (or root /)
+   
+   Mount Logic:
+   - Create new QuizAttempt via Ash (start_quiz action)
+   - Load all 10 questions ordered by display_order
+   - Initialize socket assigns:
+     * @quiz_attempt
+     * @questions (list of 10)
+     * @current_question_index (0)
+     * @answers_map (%{question_id => %{selected: nil, justification: ""}})
+   
+4.2 Single Question Display (Paginated View)
+   Template (quiz_live/index.html.heex):
+   - Display current question text
+   - Render 4 radio buttons for options
+   - Render textarea for justification
+   - Show question counter (e.g., "Question 3 of 10")
+   - "Previous" button (if not first question)
+   - "Next" button (if not last question)
+   - "Submit Quiz" button (only on last question)
+   
+4.3 Input Validation & Navigation
+   - Track form state in @answers_map
+   - Disable "Next"/"Submit" until BOTH:
+     * A radio option is selected
+     * Justification has at least 1 character
+   - Handle phx-change events to update socket state
+   - Handle "previous" click: current_question_index - 1
+   - Handle "next" click: current_question_index + 1
+
+4.4 Answer Persistence
+   On "Next" or "Previous" navigation:
+   - Call Ash API to create/update Answer record
+   - Associate with current quiz_attempt_id and question_id
+   - Store selected_option_index and user_justification
+   - Handle errors gracefully (show flash message)
+
+4.5 Submit Quiz Handler
+   On "Submit Quiz" click:
+   - Ensure all 10 answers saved
+   - Call Ash submit_quiz action on QuizAttempt
+   - This triggers score calculation (server-side)
+   - Redirect to results page: /quiz/results/:attempt_id
+
+================================================================================
+PHASE 5: SCORING LOGIC (ASH ACTION)
+================================================================================
+
+5.1 Implement :submit_quiz Action on QuizAttempt
+   Logic:
+   - Load all 10 answers for this attempt (with questions)
+   - Initialize score = 0
+   - Iterate through answers:
+     * Compare answer.selected_option_index with question.correct_option_index
+     * If match: score += 1
+   - Set submitted_at timestamp
+   - Set score attribute
+   - Return {:ok, updated_attempt}
+   
+5.2 Validation
+   - Ensure all 10 questions have been answered
+   - Prevent re-submission (check if submitted_at already set)
+
+================================================================================
+PHASE 6: RESULTS PAGE (LIVEVIEW - FEEDBACK DISPLAY)
+================================================================================
+
+6.1 Create QuizLive.Results LiveView
+   Route: /quiz/results/:id
+   
+   Mount Logic:
+   - Load QuizAttempt by ID via Ash
+   - Preload all answers with associated questions
+   - Assign to socket:
+     * @quiz_attempt
+     * @answers (list of 10, ordered by question display_order)
+
+6.2 Summary Section
+   Template (quiz_live/results.html.heex):
+   - Display prominent score: "Your Score: 7/10 (70%)"
+   - Use Tailwind/daisyUI for attractive card/badge styling
+   - Non-editable, read-only view
+
+6.3 Detailed Review Cards (All 10 Questions)
+   For EACH question, display a card with:
+   - Question text (from question.question_text)
+   - "Your Answer": answer.options[answer.selected_option_index]
+   - "Your Justification": answer.user_justification
+   - "Correct Answer": question.options[question.correct_option_index]
+   - "Expert Rationale": question.expert_rationale
+   - Visual indicator: Green checkmark if correct, red X if wrong
+   
+   Use Tailwind utilities:
+   - Cards with borders
+   - Color coding (green for correct, red for incorrect)
+   - Clear typography hierarchy
+
+6.4 Navigation
+   - "Take Quiz Again" button -> redirects to /quiz (new attempt)
+
+================================================================================
+PHASE 7: UI/UX POLISH
+================================================================================
+
+7.1 Styling with Tailwind + daisyUI
+   - Apply consistent theme (choose daisyUI theme)
+   - Use daisyUI components: cards, badges, buttons, forms
+   - Ensure responsive design (mobile-friendly)
+   - Add loading states during navigation/submission
+
+7.2 Form UX Enhancements
+   - Show character count for justification textarea
+   - Add focus states and hover effects
+   - Clear validation error messages
+   - Smooth transitions between questions
+
+7.3 Results Page Polish
+   - Collapsible/expandable cards for each question
+   - Highlight differences between user answer and correct answer
+   - Add summary statistics (e.g., "You got 7 correct, 3 incorrect")
+
+================================================================================
+PHASE 8: TESTING & VALIDATION
+================================================================================
+
+8.1 Manual Testing Workflow
+   - Start quiz, verify all 10 questions load
+   - Test validation: cannot proceed without both inputs
+   - Navigate forward/backward, verify state persists
+   - Submit quiz with various scores (0/10, 5/10, 10/10)
+   - Verify results page displays correctly
+   - Test "Take Quiz Again" creates new attempt
+
+8.2 Edge Cases
+   - Direct URL access to results page (verify attempt exists)
+   - Attempt to submit incomplete quiz
+   - Browser refresh mid-quiz (LiveView reconnects)
+   - Concurrent quiz attempts (each should be independent)
+
+8.3 Data Integrity
+   - Verify answers are correctly associated with attempts
+   - Confirm score calculation is accurate
+   - Check timestamps are recorded properly
+
+================================================================================
+PHASE 9: DEPLOYMENT PREPARATION
+================================================================================
+
+9.1 Environment Configuration
+   - Set up production database credentials
+   - Configure SECRET_KEY_BASE
+   - Set PHX_HOST for LiveView websockets
+
+9.2 Database Migration Strategy
+   - Ensure migrations are reversible
+   - Plan for data seeding in production
+
+9.3 Documentation
+   - README with setup instructions
+   - Environment variable documentation
+   - Deployment guide
+
+================================================================================
+TECHNICAL IMPLEMENTATION NOTES
+================================================================================
+
+KEY ARCHITECTURAL PRINCIPLES
+----------------------------
+1. ALL business logic in Ash resources (no logic in LiveView)
+2. LiveView only handles UI state and delegates to Ash API
+3. No direct database access - always through Ash
+4. Use Ash policies for any authorization (if adding users later)
+5. Leverage LiveView's built-in state management (socket.assigns)
+
+ASH API STRUCTURE
+-----------------
+Module: MyApp.Quiz (or YourApp.Quiz)
+
+Usage Examples:
+- Quiz.list_questions() -> Load all questions
+- Quiz.start_quiz() -> Create QuizAttempt
+- Quiz.create_answer(attempt, question, data) -> Save answer
+- Quiz.submit_quiz(attempt) -> Calculate score
+- Quiz.get_results(attempt_id) -> Load attempt with answers
+
+LIVEVIEW STATE MANAGEMENT
+--------------------------
+Quiz Page (@socket.assigns):
+- quiz_attempt: Current attempt record
+- questions: All 10 questions
+- current_question_index: Which question is displayed (0-9)
+- answers_map: Temporary UI state before persistence
+
+Results Page (@socket.assigns):
+- quiz_attempt: Completed attempt with score
+- answers: All 10 answers with preloaded questions
+
+VALIDATION FLOW
+---------------
+1. Client-side: Disable buttons based on form completeness
+2. Server-side: Ash validations ensure data integrity
+3. Handle Ash errors in LiveView and display to user
+
+================================================================================
+IMPLEMENTATION ORDER SUMMARY
+================================================================================
+
+1. Setup Phoenix + Ash + Database
+2. Define 3 Ash Resources (Question, QuizAttempt, Answer)
+3. Create & run migrations
+4. Seed 10 questions
+5. Build Quiz LiveView (question display + navigation)
+6. Implement answer persistence
+7. Build score calculation (Ash action)
+8. Build Results LiveView (feedback display)
+9. Polish UI with Tailwind/daisyUI
+10. Test thoroughly
+11. Deploy
+
+================================================================================
+ESTIMATED EFFORT
+================================================================================
+
+Phase 1-2: 2-3 hours (setup + domain modeling)
+Phase 3: 1-2 hours (seed data creation)
+Phase 4: 3-4 hours (quiz interface)
+Phase 5: 1 hour (scoring logic)
+Phase 6: 2-3 hours (results page)
+Phase 7: 2-3 hours (UI polish)
+Phase 8: 2 hours (testing)
+Phase 9: 1 hour (deployment prep)
+
+Total: ~14-20 hours for complete implementation
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+Once this plan is approved, we will begin with Phase 1 (Project Setup).
+Please review and provide feedback or request modifications before we proceed.
+
+================================================================================

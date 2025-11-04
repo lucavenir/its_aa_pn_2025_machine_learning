@@ -1,0 +1,147 @@
+<div class="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
+  <div class="mx-auto max-w-5xl px-4 py-8">
+    <!-- Score Summary -->
+    <div class="bg-gradient-to-r from-red-900 to-black border-2 border-red-800 text-white rounded-lg shadow-2xl shadow-red-900/50 p-8 mb-8">
+      <div class="text-center">
+        <h1 class="text-4xl font-bold mb-4">Quiz Complete!</h1>
+        <div class="text-6xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-red-600">
+          <%= @quiz_attempt.score %>/10
+        </div>
+        <p class="text-2xl opacity-90">
+          <%= trunc(@quiz_attempt.score / 10 * 100) %>%
+        </p>
+        <p class="mt-4 text-lg opacity-80">
+          You got <%= @quiz_attempt.score %> <%= if @quiz_attempt.score == 1, do: "question", else: "questions" %> correct
+        </p>
+      </div>
+    </div>
+
+    <!-- Performance message -->
+    <div class="mb-8 text-center">
+      <%= cond do %>
+        <% @quiz_attempt.score >= 9 -> %>
+          <p class="text-xl text-red-400 font-semibold">🎉 Excellent work! Outstanding performance!</p>
+        <% @quiz_attempt.score >= 7 -> %>
+          <p class="text-xl text-red-300 font-semibold">👏 Great job! Strong understanding demonstrated.</p>
+        <% @quiz_attempt.score >= 5 -> %>
+          <p class="text-xl text-gray-300 font-semibold">👍 Good effort. Review the explanations below to strengthen your knowledge.</p>
+        <% true -> %>
+          <p class="text-xl text-gray-400 font-semibold">📚 Keep learning! Carefully review the expert rationales below.</p>
+      <% end %>
+    </div>
+
+    <!-- Detailed Review Section -->
+    <div class="mb-8">
+      <h2 class="text-2xl font-bold mb-6 text-red-50">Detailed Review</h2>    <div class="space-y-6">
+      <%= for {answer, index} <- Enum.with_index(@answers) do %>
+        <% is_correct = QuizAppWeb.QuizLive.Results.is_answer_correct?(answer) %>
+        
+        <div class={"border-2 rounded-lg p-6 bg-gray-900 #{if is_correct, do: "border-red-700", else: "border-gray-700"}"}>
+          <!-- Question number and status -->
+          <div class="flex items-start justify-between mb-4">
+            <h3 class="text-lg font-bold text-red-50">
+              Question <%= index + 1 %>
+            </h3>
+            <%= if is_correct do %>
+              <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-700 text-white shadow-lg shadow-red-900/50">
+                ✓ Correct
+              </span>
+            <% else %>
+              <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-700 text-gray-200">
+                ✗ Incorrect
+              </span>
+            <% end %>
+          </div>
+
+          <!-- Question text -->
+          <div class="mb-4 pb-4 border-b border-gray-800">
+            <p class="text-gray-200 font-medium">
+              <%= answer.question.question_text %>
+            </p>
+          </div>
+
+          <!-- Two-column layout for comparison -->
+          <div class="grid md:grid-cols-2 gap-6 mb-4">
+            <!-- Your response column -->
+            <div class="space-y-3">
+              <div>
+                <p class="text-sm font-semibold text-gray-400 mb-2">Your Answer:</p>
+                <p class={"px-3 py-2 rounded border-2 #{if is_correct, do: "bg-red-950 text-red-200 border-red-800", else: "bg-gray-800 text-gray-300 border-gray-700"}"}>
+                  <%= QuizAppWeb.QuizLive.Results.get_selected_option(answer) %>
+                </p>
+              </div>
+
+              <div>
+                <p class="text-sm font-semibold text-gray-400 mb-2">Your Justification:</p>
+                <div class="bg-black border-2 border-gray-800 rounded p-3 text-gray-300">
+                  <%= answer.user_justification %>
+                </div>
+              </div>
+            </div>
+
+            <!-- Expert response column -->
+            <div class="space-y-3">
+              <div>
+                <p class="text-sm font-semibold text-gray-400 mb-2">Correct Answer:</p>
+                <p class="px-3 py-2 rounded bg-red-900 text-red-100 font-medium border-2 border-red-700">
+                  <%= QuizAppWeb.QuizLive.Results.get_correct_option(answer.question) %>
+                </p>
+              </div>
+
+              <div>
+                <p class="text-sm font-semibold text-gray-400 mb-2">Expert Rationale:</p>
+                <div class="bg-red-950 border-2 border-red-900 rounded p-3 text-gray-300">
+                  <%= answer.question.expert_rationale %>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Key learning point (if incorrect) -->
+          <%= if !is_correct do %>
+            <div class="mt-4 p-3 bg-gray-800 border-l-4 border-red-600">
+              <p class="text-sm text-gray-300">
+                <span class="font-semibold text-red-400">💡 Learning Opportunity:</span>
+                Compare your reasoning with the expert rationale above to understand the correct approach.
+              </p>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="flex justify-center gap-4 mt-8">
+    <.link
+      navigate={~p"/"}
+      class="px-6 py-3 bg-gradient-to-r from-red-600 to-red-800 text-white rounded-lg font-medium hover:from-red-700 hover:to-red-900 transition-all duration-200 shadow-lg shadow-red-900/50"
+    >
+      Take Quiz Again
+    </.link>
+  </div>
+
+  <!-- Summary statistics -->
+  <div class="mt-8 p-6 bg-black border-2 border-gray-800 rounded-lg">
+    <h3 class="font-bold text-red-50 mb-3">Summary Statistics</h3>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+      <div>
+        <p class="text-2xl font-bold text-red-400"><%= @quiz_attempt.score %></p>
+        <p class="text-sm text-gray-400">Correct</p>
+      </div>
+      <div>
+        <p class="text-2xl font-bold text-gray-400"><%= 10 - @quiz_attempt.score %></p>
+        <p class="text-sm text-gray-400">Incorrect</p>
+      </div>
+      <div>
+        <p class="text-2xl font-bold text-red-300">10</p>
+        <p class="text-sm text-gray-400">Total Questions</p>
+      </div>
+      <div>
+        <p class="text-2xl font-bold text-red-500"><%= trunc(@quiz_attempt.score / 10 * 100) %>%</p>
+        <p class="text-sm text-gray-400">Score</p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
