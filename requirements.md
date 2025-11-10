@@ -1,71 +1,61 @@
-# Requirements Document
+# **Software Requirements Document: Justification Quiz Engine**
 
-## 1. 🏛️ Core Data Structure (The Assessment Model)
+## **1\. Application Overview and Goal**
 
-To function, the application requires a clearly defined data model for the quiz content. Each of the 10 questions must be structured as an object containing the following properties:
+The primary goal of this application is to provide a **single-session, high-stakes self-assessment tool** that requires users to actively engage with the material by **justifying** their answers. This application is designed purely for self-testing and immediate informational feedback.
 
-* **`questionID`**: A unique identifier (e.g., `q1`, `q2`).
-* **`questionText`**: The full text of the question (e.g., "Which principle of design emphasizes...").
-* **`options`**: An array of four (4) string-based answer choices.
-* **`correctOptionIndex`**: The index (0-3) of the correct answer within the `options` array.
-* **`expertRationale`**: A pre-authored, comprehensive text explaining *why* the correct answer is correct.
+The application must be **stateless** and maintain absolute **privacy**. Upon quiz submission or completion, the application **MUST NOT** store, record, or track any user-generated data, including selected options, provided textual justifications (motivations), calculated scores, or time taken. The application's lifecycle is limited to the single session on the user's screen.
 
----
+## **2\. Quiz Generation and Structure**
 
-## 2. 💻 User Interaction & Workflow
+### **2.1 Quiz Content Selection**
 
-This section defines the mandatory user flow from start to submission.
+The system shall randomly select and display precisely **ten (10)** questions from the application’s large, pre-existing database for each session.
 
-### Quiz Interface
-* The quiz shall present the 10 questions to the user. This can be a single, scrolling page or a paginated "one-question-at-a-time" view.
-* For each of the 10 questions, the UI must display:
-    1.  The **`questionText`**.
-    2.  The four **`options`** (e.g., as radio buttons).
-    3.  A mandatory **free-text input field** (e.g., `<textarea>`) for the user's justification.
+### **2.2 Question Data Structure**
 
-### Input Validation & Progression
-* **Mandatory Fields**: Progression to the next question (in a paginated view) or final submission (in a single-page view) must be programmatically blocked until the user has interacted with *both* components of the current question.
-* **Constraint Logic**: For each question, the user *must* select one multiple-choice option AND type at least one character into the justification text field.
-* **Final Submission**: A single "Submit Quiz" button will be present. Clicking this button initiates the grading process and locks the quiz from further edits.
+The application must draw from a question bank where each question is structured with the following mandatory fields:
 
----
+{  
+    "question": "string",  
+    "options": \["string", "string", "string", "string"\],  
+    "correct\_answer": "string",  
+    "motivation": "string"  
+}
 
-## 3. ⚙️ Backend Processing & Scoring Logic
+The correct\_answer field must match one of the strings provided in the options array. The motivation field contains the definitive explanation for the correct answer.
 
-Upon user submission, the system must execute the following logic:
+### **2.3 Quiz Display**
 
-1.  **Data Capture**: The system collects the user's 10 answers. Each answer object will contain:
-    * The `questionID`.
-    * The `selectedOptionIndex` (the user's MCQ choice).
-    * The `userJustification` (the user's free text).
-2.  **Scoring Loop**: The system initializes a `score` variable to 0.
-3.  **Comparison**: It iterates through the user's 10 answers. For each answer, it retrieves the corresponding `questionID` from the Core Data Structure.
-4.  **Accuracy Check**: It compares the user's `selectedOptionIndex` with the stored `correctOptionIndex`.
-    * **If match**: `score = score + 1`.
-    * **If no match**: No points are awarded.
-5.  **Ignore Justification**: The `userJustification` text is **explicitly ignored** for numerical scoring. It is saved alongside the answer for the feedback phase.
-6.  **Final Score Calculation**: The system computes the final numerical score (e.g., "8/10" or "80%").
+The 10 selected questions shall be presented sequentially or on a single page, ensuring clear separation between each question.
 
----
+## **3\. User Interaction and Validation**
 
-## 4. 📊 Post-Submission Feedback Display
+### **3.1 Mandatory User Inputs**
 
-Immediately after processing, the system must redirect the user to a "Results" page. This page is non-editable and purely informational.
+For each of the ten questions presented, the user shall be required to provide two distinct and mandatory inputs:
 
-### Summary View
-* The user's final **numerical score** (e.g., "7/10") must be prominently displayed at the top of the page.
+1. **Option Selection:** The user must select **precisely one** of the four provided options. This interaction shall be implemented using a radio button group (or equivalent UI component).  
+2. **Textual Justification:** The user must provide a **textual justification (motivation)** for their chosen answer. This interaction shall be implemented using a text area input field.
 
-### Detailed Question Review
-* Below the score, the application must display a review section for **all 10 questions**, regardless of whether the user answered them correctly or incorrectly.
-* Each question's review card provides the core feedback loop by presenting a direct comparison.
+### **3.2 Submission Gate**
 
+A primary "Submit Quiz" button shall be prominently displayed but must remain **disabled** until the following validation criteria are met for **all 10 questions**:
 
+* Criterion A: A single option has been selected.  
+* Criterion B: Textual content has been provided in the justification input field.
 
-* **Each review card must contain:**
-    1.  **The Question**: The original `questionText`.
-    2.  **Your Answer**: The `option` the user selected (e.g., "B. Homeostasis").
-    3.  **Your Justification**: The `userJustification` text the user provided.
-    4.  **Correct Answer**: The correct `option` from the data model.
-    5.  **Expert Rationale**: The pre-authored `expertRationale`.
+The submission button must become enabled only when both Criterion A and Criterion B are satisfied for every question.
 
-This structure allows the student to immediately cross-reference their own critical reasoning (their justification) against the expert's, which is the primary objective of the qualitative feedback.
+## **4\. Results and Feedback**
+
+### **4.1 Post-Submission Output**
+
+Upon successful submission, the system shall transition to a results view. The **only** information presented to the user for each of the 10 questions shall be:
+
+1. The **Correct Answer**: Displaying the string value found in the database's correct\_answer field.  
+2. The **Definitive Explanation**: Displaying the full text found in the database's motivation field.
+
+### **4.2 Scoring Policy**
+
+The application **MUST NOT** calculate, display, or communicate any score, grade, or pass/fail status to the user. The application's role is purely to provide the correct information for self-correction.

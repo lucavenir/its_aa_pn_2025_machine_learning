@@ -1,376 +1,543 @@
 ================================================================================
-IMPLEMENTATION PLAN: Quiz Application with Expert Feedback
+JUSTIFICATION QUIZ ENGINE - IMPLEMENTATION PLAN
 ================================================================================
 
+Project: Self-Assessment Quiz Application
+Framework: Elixir + Phoenix LiveView
+Generated: November 10, 2025
+
+================================================================================
 PROJECT OVERVIEW
-----------------
-A server-rendered, real-time quiz application built with Elixir/Phoenix LiveView
-and Ash Framework. The system presents 10 questions with multiple-choice answers
-and mandatory text justifications, then provides comprehensive feedback comparing
-user reasoning against expert rationales.
-
-TECHNOLOGY STACK
-----------------
-- Elixir/OTP (BEAM VM)
-- Phoenix Framework
-- Phoenix LiveView (real-time UI)
-- Ash Framework (domain modeling & business logic)
-- PostgreSQL 18 (persistence)
-- Tailwind CSS + daisyUI (styling)
-
-================================================================================
-PHASE 1: PROJECT SETUP & INFRASTRUCTURE
 ================================================================================
 
-1.1 Create Phoenix Application
-   - Generate new Phoenix app with LiveView support
-   - Configure PostgreSQL database connection
-   - Set up Tailwind CSS + daisyUI
-   - Verify basic Phoenix server runs
-
-1.2 Install & Configure Ash Framework
-   - Add ash, ash_phoenix, ash_postgres dependencies
-   - Create Ash API module (e.g., MyApp.Quiz)
-   - Configure ash_postgres data layer
-   - Set up basic Ash resource structure
-
-1.3 Database Setup
-   - Generate initial migration structure
-   - Configure Ecto/Postgres through Ash
-   - Verify database connectivity
+Build a single-session, privacy-focused quiz application where users:
+- Answer 10 randomly selected questions
+- Provide both option selection AND textual justification
+- Receive only the correct answers and explanations (NO scoring)
+- Leave NO trace after session ends (stateless, no persistence)
 
 ================================================================================
-PHASE 2: DOMAIN MODELING (ASH RESOURCES)
+PHASE 1: PROJECT SETUP & FOUNDATION
 ================================================================================
 
-2.1 Define Question Resource (Quiz.Question)
-   Attributes:
-   - question_id (string, primary key) - e.g., "q1", "q2"
-   - question_text (text) - The full question text
-   - options (array of strings, length: 4) - Four answer choices
-   - correct_option_index (integer, 0-3) - Index of correct answer
-   - expert_rationale (text) - Pre-authored explanation
-   - display_order (integer) - For ordering questions (1-10)
+1.1 Initialize Phoenix Project
+   - Run: mix phx.new ai_quizzer --no-mailer
+   - --no-mailer since no email functionality needed
+   - Database will (currently) store ONLY questions, NOT user responses
+
+1.2 Configure Dependencies
+   - Ensure :req is available (Phoenix 1.8 includes it by default)
+   - Verify Tailwind CSS v4 setup in assets/css/app.css
+   - Ecto and PostgreSQL (or SQLite for simplicity) included by default
+   - No additional dependencies needed for core functionality
+
+1.3 Database Configuration
+   - Configure database in config/dev.exs and config/test.exs
+   - Consider SQLite for simplicity (single file, no external DB needed)
+   - Or PostgreSQL for production-like setup
+   - Database is READ-ONLY for questions, NO user data tables
+
+1.4 Set Up Mix Precommit Alias
+   - Add to mix.exs:
+     defp aliases do
+       [
+         precommit: ["format", "compile --warnings-as-errors", "credo"]
+       ]
+     end
+   - May need to add credo dependency
+
+================================================================================
+PHASE 2: DATA LAYER (QUESTION BANK WITH ECTO)
+================================================================================
+
+2.1 Create Question Schema
+   - Module: lib/ai_quizzer/quiz/question.ex
+   - Use Ecto.Schema for database mapping
+   - Fields:
+     * id: :id (primary key, auto-increment)
+     * question: :string (the question text)
+     * option_1: :string (first option)
+     * option_2: :string (second option)
+     * option_3: :string (third option)
+     * option_4: :string (fourth option)
+     * correct_answer: :string (must match one of the options)
+     * motivation: :string (explanation for correct answer)
+     * inserted_at: :naive_datetime
+     * updated_at: :naive_datetime
+   - Virtual field: options (derived from option_1..option_4 for convenience)
+
+2.2 Create Migration
+   - File: priv/repo/migrations/TIMESTAMP_create_questions.exs
+   - Create questions table with all fields
+   - Add index on id for fast random selection
+   - Ensure NOT NULL constraints on required fields
+
+2.3 Create Context Module
+   - Module: lib/ai_quizzer/quiz.ex
+   - Public API functions:
+     * list_questions/0 - Get all questions
+     * get_question!/1 - Get single question by ID
+     * random_questions/1 - Get N random questions (default 10)
+     * count_questions/0 - Count total questions in database
+   - Use Ecto.Query for efficient random selection:
+     from(q in Question, order_by: fragment("RANDOM()"), limit: ^count)
+
+2.4 Seed Data Integration
+   - File: priv/repo/seeds.exs
+   - Read seeding.json file
+   - Parse JSON into question structs
+   - Use Repo.insert!/1 or Repo.insert_all/2 to populate database
+   - Handle existing data (truncate first or check for duplicates)
+   - Validation: ensure each question has exactly 4 options
+   - Transform JSON structure to match schema (array of options -> option_1..4)
+
+================================================================================
+PHASE 3: CORE LIVEVIEW - QUIZ SESSION
+================================================================================
+
+3.1 Create Main Quiz LiveView
+   - Module: lib/ai_quizzer_web/live/quiz_live.ex
+   - Route: "/" (root path)
+   - Responsibilities:
+     * Initialize quiz session with 10 random questions
+     * Track user inputs (option selections + justifications)
+     * Validate completion status
+     * Handle submission
+     * Display results
+
+3.2 LiveView State Management
+   - Socket assigns:
+     * questions: list of 10 Question structs (from Ecto)
+     * user_answers: map of %{question_index => %{option: selected, justification: text}}
+     * view_mode: :quiz | :results
+     * submission_enabled: boolean
+
+3.3 Mount Function
+   def mount(_params, _session, socket) do
+     # Fetch 10 random questions from database
+     questions = Quiz.random_questions(10)
+     
+     socket =
+       socket
+       |> assign(:questions, questions)
+       |> assign(:user_answers, %{})
+       |> assign(:view_mode, :quiz)
+       |> assign(:submission_enabled, false)
+     
+     {:ok, socket}
+   end
+
+3.4 Event Handlers
+   - handle_event("select_option", %{"index" => i, "option" => opt}, socket)
+     * Update user_answers map
+     * Recalculate submission_enabled
    
-   Actions:
-   - :read - Fetch all questions for quiz display
-   - :create - Seed questions (admin/setup only)
+   - handle_event("update_justification", %{"index" => i, "text" => text}, socket)
+     * Update user_answers map
+     * Recalculate submission_enabled
    
-   Validations:
-   - options must have exactly 4 elements
-   - correct_option_index must be 0-3
-   - All text fields required
+   - handle_event("submit_quiz", _params, socket)
+     * Change view_mode to :results
+     * Keep questions and user_answers for comparison (optional)
 
-2.2 Define QuizAttempt Resource (Quiz.QuizAttempt)
-   Attributes:
-   - id (uuid, primary key)
-   - started_at (utc_datetime_usec)
-   - submitted_at (utc_datetime_usec, nullable)
-   - score (integer, nullable) - Final score (0-10)
-   - score_percentage (float, calculated) - score/10 * 100
+3.5 Validation Logic
+   - Helper function: all_questions_answered?/1
+   - Check for each question (0-9):
+     * Has selected option
+     * Has non-empty justification text (trim whitespace)
+   - Update submission_enabled assign accordingly
+
+================================================================================
+PHASE 4: UI/UX DESIGN - QUIZ VIEW
+================================================================================
+
+4.1 Quiz Template Structure
+   - File: lib/ai_quizzer_web/live/quiz_live.html.heex
+   - Wrap in: <Layouts.app flash={@flash}>
+   - Conditional rendering based on @view_mode
+
+4.2 Quiz Mode UI Components
+   - Header section:
+     * App title (use DaisyUI .navbar or hero section)
+     * Instructions (10 questions, justify each answer)
+     * Privacy notice (no data stored) - use DaisyUI .alert .alert-info
    
-   Relationships:
-   - has_many :answers (Quiz.Answer)
+   - Question cards (iterate through @questions):
+     * Use DaisyUI .card .card-bordered for each question
+     * Question number and text (.card-title)
+     * Radio button group for 4 options
+       - Use DaisyUI .form-control and .radio classes
+       - Use phx-click="select_option" with question index
+       - Highlight selected option
+     * Text area for justification
+       - Use DaisyUI .textarea .textarea-bordered
+       - Use phx-change="update_justification" or phx-blur
+       - Placeholder: "Explain why you chose this answer..."
+       - Minimum height for comfortable typing
    
-   Actions:
-   - :start_quiz - Create new attempt, set started_at
-   - :submit_quiz - Calculate score, set submitted_at
-   - :read - Fetch attempt with answers for results page
+   - Submit button:
+     * Use DaisyUI .btn .btn-primary
+     * Disabled state: .btn-disabled when @submission_enabled == false
+     * Clear visual feedback (grayed out when disabled)
+     * Button text: "Submit Quiz"
+
+4.3 Design Guidelines
+   - **Prefer DaisyUI components first**, then Tailwind CSS for custom styling
+   - DaisyUI is included by default in Phoenix 1.8+
+   - Use DaisyUI components: card, btn, radio, textarea, badge, etc.
+   - Leverage DaisyUI themes for consistent color schemes
+   - Supplement with Tailwind utilities for spacing, layout, and custom tweaks
+   - Implement subtle hover effects on interactive elements
+   - Use card-based layout for questions (DaisyUI .card class)
+   - Ensure proper spacing between questions
+   - Mobile-responsive design (stack elements on small screens)
+   - Color scheme: Use DaisyUI theme (consider 'corporate', 'cupcake', or custom)
+   - Typography: Clear hierarchy (question > options > instructions)
+
+4.4 Micro-interactions
+   - Radio button: DaisyUI .radio component with smooth transitions
+   - Text area: DaisyUI .textarea with focus states
+   - Submit button: DaisyUI .btn with hover effects (.btn-primary when enabled)
+   - Disabled button: DaisyUI .btn-disabled class
+   - Use DaisyUI's built-in animation utilities where appropriate
+
+================================================================================
+PHASE 5: UI/UX DESIGN - RESULTS VIEW
+================================================================================
+
+5.1 Results Template Structure
+   - Conditional block within quiz_live.html.heex
+   - Display when @view_mode == :results
+
+5.2 Results Display Components
+   - Header:
+     * "Quiz Complete" or "Review Your Answers" (DaisyUI .hero and/or .text-3xl)
+     * NO score display (per requirements)
    
-   Calculations:
-   - score_percentage - Derived from score attribute
-
-2.3 Define Answer Resource (Quiz.Answer)
-   Attributes:
-   - id (uuid, primary key)
-   - selected_option_index (integer, 0-3)
-   - user_justification (text)
-   - is_correct (boolean, calculated)
+   - Results cards (for each question):
+     * Use DaisyUI .card .card-bordered for each result
+     * Question number and text (.card-title)
+     * "Correct Answer:" label + the correct option
+       - Use DaisyUI .badge .badge-success or .alert .alert-success
+     * "Explanation:" label + the motivation text
+       - Display in .card-body
+     * Visual separation between questions
    
-   Relationships:
-   - belongs_to :quiz_attempt (Quiz.QuizAttempt)
-   - belongs_to :question (Quiz.Question)
+   - Action buttons:
+     * "Take Another Quiz" - DaisyUI .btn .btn-primary
+     * Optional: "Return to Start" link
+
+5.3 Results Styling
+   - Distinct visual style from quiz mode
+   - Use DaisyUI .alert or .badge classes for correct answer highlighting
+   - Correct answer highlighted with DaisyUI success color variant
+   - Explanation text: easy to read, adequate font size
+   - Card-based layout matching quiz view (DaisyUI .card)
+   - Use DaisyUI .btn-success or similar for action buttons
+   - Celebration/completion feel (without showing score)
+
+================================================================================
+PHASE 6: ROUTING & NAVIGATION
+================================================================================
+
+6.1 Router Configuration
+   - File: lib/ai_quizzer_web/router.ex
+   - Add live route in :browser scope:
+     
+     scope "/", ItsAaPn2025MachineLearningWeb do
+       pipe_through :browser
+       
+       live "/", QuizLive, :index
+     end
+
+6.2 Navigation Flow
+   - Single page application (SPA) feel
+   - No need for multiple routes (single LiveView handles both modes)
+   - "Take Another Quiz" button triggers remount or reset
+
+================================================================================
+PHASE 7: VALIDATION & ERROR HANDLING
+================================================================================
+
+7.1 Input Validation
+   - Option selection: ensure value matches one of the 4 options
+   - Justification text:
+     * Trim whitespace
+     * Minimum length check (e.g., 10 characters) - Optional but recommended
+     * Maximum length (prevent abuse) - Optional
+
+7.2 Data Validation
+   - Question loading from database: ensure all fields present
+   - Handle empty question bank gracefully
+   - Database seeding validation:
+     * Verify seeding.json structure before insert
+     * Ensure 4 options per question
+     * Validate correct_answer matches one of the options
+     * Log warnings for invalid questions (skip during seeding)
+
+7.3 Error States
+   - Failed to load questions: show friendly error message
+   - Empty question bank: prevent quiz start
+   - Client-side validation feedback (if justification too short)
+
+================================================================================
+PHASE 8: TESTING STRATEGY
+================================================================================
+
+8.1 Unit Tests
+   - Test Quiz context module:
+     * random_questions/1 returns exactly 10 unique questions
+     * random_questions/1 returns different sets on multiple calls
+     * count_questions/0 returns correct count
+     * Questions have all required fields
    
-   Actions:
-   - :create - Save user's answer
-   - :update - Allow editing before submission
-   - :read - Fetch for results display
-   
-   Calculations:
-   - is_correct - Compare selected_option_index with question.correct_option_index
-   
-   Validations:
-   - selected_option_index must be 0-3
-   - user_justification must have at least 1 character
-   - Both fields required
+   - Test Question schema:
+     * Virtual options field works correctly
+     * Changeset validations (if any)
 
-2.4 Database Migrations
-   - Generate migrations from Ash resources
-   - Run migrations to create tables
-   - Verify schema matches domain model
+8.2 LiveView Tests
+   - File: test/ai_quizzer_web/live/quiz_live_test.exs
+   - Test scenarios:
+     * Mount loads 10 questions
+     * Submit button starts disabled
+     * Selecting option updates state
+     * Adding justification updates state
+     * Submit button enables when all 10 complete
+     * Clicking submit shows results view
+     * Results display correct answers and motivations
+     * "Take Another Quiz" resets properly
 
-================================================================================
-PHASE 3: SEED DATA (10 QUESTIONS)
-================================================================================
-
-3.1 Create Seed Script
-   - Define all 10 questions with:
-     * Unique question_id (q1-q10)
-     * Full question_text
-     * 4 options per question
-     * correct_option_index
-     * comprehensive expert_rationale
-     * display_order (1-10)
-   
-3.2 Load Questions into Database
-   - Use Ash.create! to insert questions
-   - Verify all 10 questions exist
-   - Test reading questions via Ash API
+8.3 Test Implementation Approach
+   - Use Phoenix.LiveViewTest functions
+   - Reference element IDs from templates
+   - Use has_element?/2 for assertions
+   - Test user flow end-to-end
+   - Use render_submit/2 for form testing
 
 ================================================================================
-PHASE 4: QUIZ INTERFACE (LIVEVIEW - TAKING THE QUIZ)
+PHASE 9: PRIVACY & STATELESSNESS VERIFICATION
 ================================================================================
 
-4.1 Create QuizLive.Index LiveView
-   Route: /quiz (or root /)
-   
-   Mount Logic:
-   - Create new QuizAttempt via Ash (start_quiz action)
-   - Load all 10 questions ordered by display_order
-   - Initialize socket assigns:
-     * @quiz_attempt
-     * @questions (list of 10)
-     * @current_question_index (0)
-     * @answers_map (%{question_id => %{selected: nil, justification: ""}})
-   
-4.2 Single Question Display (Paginated View)
-   Template (quiz_live/index.html.heex):
-   - Display current question text
-   - Render 4 radio buttons for options
-   - Render textarea for justification
-   - Show question counter (e.g., "Question 3 of 10")
-   - "Previous" button (if not first question)
-   - "Next" button (if not last question)
-   - "Submit Quiz" button (only on last question)
-   
-4.3 Input Validation & Navigation
-   - Track form state in @answers_map
-   - Disable "Next"/"Submit" until BOTH:
-     * A radio option is selected
-     * Justification has at least 1 character
-   - Handle phx-change events to update socket state
-   - Handle "previous" click: current_question_index - 1
-   - Handle "next" click: current_question_index + 1
+9.1 Verify No USER Data Persistence
+   - Confirm no database tables for user responses
+   - Questions table is READ-ONLY after seeding
+   - No database writes during quiz session
+   - No GenServers storing user data beyond session
+   - No file writes of user responses/justifications
+   - No logging of user answers/justifications
 
-4.4 Answer Persistence
-   On "Next" or "Previous" navigation:
-   - Call Ash API to create/update Answer record
-   - Associate with current quiz_attempt_id and question_id
-   - Store selected_option_index and user_justification
-   - Handle errors gracefully (show flash message)
+9.2 Session Lifecycle
+   - User data exists only in LiveView socket assigns
+   - Data cleared when user closes tab/browser
+   - Each new session fetches fresh random questions from DB
+   - No cookies storing quiz data
 
-4.5 Submit Quiz Handler
-   On "Submit Quiz" click:
-   - Ensure all 10 answers saved
-   - Call Ash submit_quiz action on QuizAttempt
-   - This triggers score calculation (server-side)
-   - Redirect to results page: /quiz/results/:attempt_id
+9.3 Privacy Documentation
+   - Add privacy notice in UI
+   - Document in README: "Questions stored in DB, user responses never saved"
+   - Clarify: Database contains ONLY the question bank
 
 ================================================================================
-PHASE 5: SCORING LOGIC (ASH ACTION)
+PHASE 10: POLISH & FINALIZATION
 ================================================================================
 
-5.1 Implement :submit_quiz Action on QuizAttempt
-   Logic:
-   - Load all 10 answers for this attempt (with questions)
-   - Initialize score = 0
-   - Iterate through answers:
-     * Compare answer.selected_option_index with question.correct_option_index
-     * If match: score += 1
-   - Set submitted_at timestamp
-   - Set score attribute
-   - Return {:ok, updated_attempt}
-   
-5.2 Validation
-   - Ensure all 10 questions have been answered
-   - Prevent re-submission (check if submitted_at already set)
+10.1 UI Polish
+   - Implement all micro-interactions
+   - Ensure smooth transitions between states
+   - Add loading states if needed (though should be instant)
+   - Test on multiple screen sizes
+   - Verify accessibility (keyboard navigation, ARIA labels)
+
+10.2 Code Quality
+   - Run mix precommit
+   - Fix any compiler warnings
+   - Ensure consistent code formatting
+   - Add module documentation (@moduledoc)
+   - Add function documentation (@doc)
+
+10.3 Documentation
+   - Update README with:
+     * Project description
+     * How to run locally (including database setup)
+     * How to seed database: mix ecto.setup
+     * How to add questions to seeding.json and re-seed
+     * Privacy guarantees (questions in DB, user responses never stored)
+     * Technology stack (Phoenix, LiveView, Ecto)
+
+10.4 Performance Optimization
+   - Ensure question queries are efficient (indexed primary key)
+   - Consider database connection pooling (default with Ecto)
+   - Random selection query optimization (RANDOM() vs alternatives)
+   - Minimize re-renders in LiveView
+   - Optimize CSS bundle size
 
 ================================================================================
-PHASE 6: RESULTS PAGE (LIVEVIEW - FEEDBACK DISPLAY)
+ADDITIONAL BENEFITS OF USING ECTO
 ================================================================================
 
-6.1 Create QuizLive.Results LiveView
-   Route: /quiz/results/:id
-   
-   Mount Logic:
-   - Load QuizAttempt by ID via Ash
-   - Preload all answers with associated questions
-   - Assign to socket:
-     * @quiz_attempt
-     * @answers (list of 10, ordered by question display_order)
+1. **Easier Question Management**: 
+   - Can add/edit/remove questions via database tools
+   - No need to parse JSON on every request
+   - Can use migrations to evolve question schema
 
-6.2 Summary Section
-   Template (quiz_live/results.html.heex):
-   - Display prominent score: "Your Score: 7/10 (70%)"
-   - Use Tailwind/daisyUI for attractive card/badge styling
-   - Non-editable, read-only view
+2. **Better Performance**:
+   - Database handles random selection efficiently
+   - No need to load all questions into memory
+   - Connection pooling already configured
 
-6.3 Detailed Review Cards (All 10 Questions)
-   For EACH question, display a card with:
-   - Question text (from question.question_text)
-   - "Your Answer": answer.options[answer.selected_option_index]
-   - "Your Justification": answer.user_justification
-   - "Correct Answer": question.options[question.correct_option_index]
-   - "Expert Rationale": question.expert_rationale
-   - Visual indicator: Green checkmark if correct, red X if wrong
-   
-   Use Tailwind utilities:
-   - Cards with borders
-   - Color coding (green for correct, red for incorrect)
-   - Clear typography hierarchy
+3. **Testing Benefits**:
+   - Use test database with sandbox mode
+   - Clean slate for each test
+   - Easy to create test fixtures
 
-6.4 Navigation
-   - "Take Quiz Again" button -> redirects to /quiz (new attempt)
+4. **Future Extensibility**:
+   - Easy to add categories, difficulty levels, tags later
+   - Can add analytics on question usage (if desired)
+   - Can implement question versioning
+
+5. **Data Integrity**:
+   - Database constraints ensure data validity
+   - Transactions if needed
+   - Consistent data across app restarts
 
 ================================================================================
-PHASE 7: UI/UX POLISH
+IMPLEMENTATION ORDER (RECOMMENDED)
 ================================================================================
 
-7.1 Styling with Tailwind + daisyUI
-   - Apply consistent theme (choose daisyUI theme)
-   - Use daisyUI components: cards, badges, buttons, forms
-   - Ensure responsive design (mobile-friendly)
-   - Add loading states during navigation/submission
+DAY 1: Foundation
+1. Initialize Phoenix project with Ecto (Phase 1)
+2. Create Question schema and migration (Phase 2.1-2.2)
+3. Create Quiz context module (Phase 2.3)
+4. Seed database from seeding.json (Phase 2.4)
+5. Verify questions load correctly from database
 
-7.2 Form UX Enhancements
-   - Show character count for justification textarea
-   - Add focus states and hover effects
-   - Clear validation error messages
-   - Smooth transitions between questions
+DAY 2: Core Functionality
+6. Create QuizLive module with basic mount (Phase 3.1-3.3)
+7. Implement event handlers (Phase 3.4)
+8. Add validation logic (Phase 3.5)
+9. Set up routing (Phase 6)
 
-7.3 Results Page Polish
-   - Collapsible/expandable cards for each question
-   - Highlight differences between user answer and correct answer
-   - Add summary statistics (e.g., "You got 7 correct, 3 incorrect")
+DAY 3: Quiz UI
+10. Build quiz view template (Phase 4.1-4.2)
+11. Style with DaisyUI components + Tailwind CSS (Phase 4.3-4.4)
+12. Test user interaction flow
 
-================================================================================
-PHASE 8: TESTING & VALIDATION
-================================================================================
+DAY 4: Results & Testing
+13. Build results view template (Phase 5)
+14. Implement "Take Another Quiz" flow
+15. Write LiveView tests (Phase 8.2)
+16. Write context/schema tests (Phase 8.1)
 
-8.1 Manual Testing Workflow
-   - Start quiz, verify all 10 questions load
-   - Test validation: cannot proceed without both inputs
-   - Navigate forward/backward, verify state persists
-   - Submit quiz with various scores (0/10, 5/10, 10/10)
-   - Verify results page displays correctly
-   - Test "Take Quiz Again" creates new attempt
-
-8.2 Edge Cases
-   - Direct URL access to results page (verify attempt exists)
-   - Attempt to submit incomplete quiz
-   - Browser refresh mid-quiz (LiveView reconnects)
-   - Concurrent quiz attempts (each should be independent)
-
-8.3 Data Integrity
-   - Verify answers are correctly associated with attempts
-   - Confirm score calculation is accurate
-   - Check timestamps are recorded properly
+DAY 5: Polish
+17. UI/UX refinements (Phase 10.1)
+18. Privacy verification (Phase 9)
+19. Documentation (Phase 10.3)
+20. Final testing and precommit checks (Phase 10.2)
 
 ================================================================================
-PHASE 9: DEPLOYMENT PREPARATION
+KEY TECHNICAL DECISIONS
 ================================================================================
 
-9.1 Environment Configuration
-   - Set up production database credentials
-   - Configure SECRET_KEY_BASE
-   - Set PHX_HOST for LiveView websockets
-
-9.2 Database Migration Strategy
-   - Ensure migrations are reversible
-   - Plan for data seeding in production
-
-9.3 Documentation
-   - README with setup instructions
-   - Environment variable documentation
-   - Deployment guide
+1. USE ECTO: For question database ONLY (read-only after seeding)
+2. NO USER DATA TABLES: Database contains ONLY questions
+3. NO LIVECOMPONENTS: Keep it simple with single LiveView
+4. NO SCORING: Only show correct answers and explanations
+5. STREAMS: NOT needed (small fixed collection of 10 questions)
+6. FORMS: Custom implementation (not Ecto-backed for user input)
+7. STATE: User responses only in socket assigns, cleared on disconnect
+8. NAVIGATION: Single route, mode switching via assigns
+9. DATABASE CHOICE: SQLite for simplicity OR PostgreSQL for production-like setup
+10. SEEDING: One-time population from seeding.json via seeds.exs
 
 ================================================================================
-TECHNICAL IMPLEMENTATION NOTES
+CRITICAL REMINDERS FROM ARCHITECTURE DOC
 ================================================================================
 
-KEY ARCHITECTURAL PRINCIPLES
-----------------------------
-1. ALL business logic in Ash resources (no logic in LiveView)
-2. LiveView only handles UI state and delegates to Ash API
-3. No direct database access - always through Ash
-4. Use Ash policies for any authorization (if adding users later)
-5. Leverage LiveView's built-in state management (socket.assigns)
-
-ASH API STRUCTURE
------------------
-Module: MyApp.Quiz (or YourApp.Quiz)
-
-Usage Examples:
-- Quiz.list_questions() -> Load all questions
-- Quiz.start_quiz() -> Create QuizAttempt
-- Quiz.create_answer(attempt, question, data) -> Save answer
-- Quiz.submit_quiz(attempt) -> Calculate score
-- Quiz.get_results(attempt_id) -> Load attempt with answers
-
-LIVEVIEW STATE MANAGEMENT
---------------------------
-Quiz Page (@socket.assigns):
-- quiz_attempt: Current attempt record
-- questions: All 10 questions
-- current_question_index: Which question is displayed (0-9)
-- answers_map: Temporary UI state before persistence
-
-Results Page (@socket.assigns):
-- quiz_attempt: Completed attempt with score
-- answers: All 10 answers with preloaded questions
-
-VALIDATION FLOW
----------------
-1. Client-side: Disable buttons based on form completeness
-2. Server-side: Ash validations ensure data integrity
-3. Handle Ash errors in LiveView and display to user
+- Use <Layouts.app flash={@flash}> wrapper
+- Use <.icon name="hero-..."> for icons
+- Use Tailwind v4 syntax in app.css
+- NO @apply in CSS
+- Use list syntax for conditional classes: class={["base", @flag && "extra"]}
+- Use <%= for %> for block constructs in templates
+- Use {...} for value interpolation in tag bodies and all attributes
+- Use <.link navigate={...}> for navigation (not live_redirect)
+- NO phx-update="append" (deprecated)
+- Add unique IDs to key elements for testing
+- HEEx comments: <%!-- comment --%>
+- No else if - use cond instead
 
 ================================================================================
-IMPLEMENTATION ORDER SUMMARY
+FILE STRUCTURE OVERVIEW
 ================================================================================
 
-1. Setup Phoenix + Ash + Database
-2. Define 3 Ash Resources (Question, QuizAttempt, Answer)
-3. Create & run migrations
-4. Seed 10 questions
-5. Build Quiz LiveView (question display + navigation)
-6. Implement answer persistence
-7. Build score calculation (Ash action)
-8. Build Results LiveView (feedback display)
-9. Polish UI with Tailwind/daisyUI
-10. Test thoroughly
-11. Deploy
+lib/
+  ai_quizzer/
+    application.ex
+    repo.ex (Ecto repository)
+    quiz.ex (context module - public API)
+    quiz/
+      question.ex (Ecto schema)
+  
+  ai_quizzer_web/
+    components/
+      core_components.ex (use existing)
+      layouts.ex (use existing)
+    live/
+      quiz_live.ex (main LiveView)
+      quiz_live.html.heex (template)
+    router.ex (add live route)
+    endpoint.ex (default)
+
+priv/
+  repo/
+    migrations/
+      TIMESTAMP_create_questions.exs
+    seeds.exs (populate questions from seeding.json)
+
+test/
+  ai_quizzer/
+    quiz_test.exs (context tests)
+    quiz/
+      question_test.exs (schema tests if needed)
+  ai_quizzer_web/
+    live/
+      quiz_live_test.exs
+
+assets/
+  css/
+    app.css (Tailwind v4 imports)
+  js/
+    app.js (default, minimal JS needed)
+
+config/
+  dev.exs (database config)
+  test.exs (test database config)
+  runtime.exs (production database config)
+
+seeding.json (source data for questions)
 
 ================================================================================
-ESTIMATED EFFORT
+VALIDATION CHECKLIST (BEFORE COMPLETION)
 ================================================================================
 
-Phase 1-2: 2-3 hours (setup + domain modeling)
-Phase 3: 1-2 hours (seed data creation)
-Phase 4: 3-4 hours (quiz interface)
-Phase 5: 1 hour (scoring logic)
-Phase 6: 2-3 hours (results page)
-Phase 7: 2-3 hours (UI polish)
-Phase 8: 2 hours (testing)
-Phase 9: 1 hour (deployment prep)
-
-Total: ~14-20 hours for complete implementation
+[ ] 10 random questions displayed per session
+[ ] Each question requires option selection (radio buttons)
+[ ] Each question requires text justification (textarea)
+[ ] Submit button disabled until ALL 10 questions complete
+[ ] Submit button enabled when all criteria met
+[ ] Submission shows results view
+[ ] Results show ONLY correct answer and motivation
+[ ] NO score/grade/pass-fail displayed
+[ ] NO user data persisted anywhere
+[ ] NO database calls
+[ ] "Take Another Quiz" works and gets new random questions
+[ ] Mobile responsive
+[ ] Accessible (keyboard navigation)
+[ ] All tests passing
+[ ] mix precommit passes
+[ ] README updated
+[ ] Privacy notice visible in UI
 
 ================================================================================
-NEXT STEPS
-================================================================================
-
-Once this plan is approved, we will begin with Phase 1 (Project Setup).
-Please review and provide feedback or request modifications before we proceed.
-
+END OF IMPLEMENTATION PLAN
 ================================================================================
