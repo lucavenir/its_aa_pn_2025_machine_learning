@@ -1,0 +1,156 @@
+<Layouts.app flash={@flash}>
+  <div class="container mx-auto px-4 py-8 max-w-4xl">
+    <%= if @view_mode == :quiz do %>
+      <%!-- Quiz Mode --%>
+      <div class="mb-8">
+        <h1 class="text-4xl font-bold text-center mb-4">Self-Assessment Quiz</h1>
+
+        <div class="alert alert-info mb-6">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="stroke-current shrink-0 w-6 h-6"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            >
+            </path>
+          </svg>
+          <div>
+            <h3 class="font-bold">Instructions</h3>
+            <ul class="list-disc list-inside text-sm mt-2">
+              <li>Answer all 10 questions</li>
+              <li>Select one option for each question</li>
+              <li>Provide a justification for your answer</li>
+              <li>
+                <strong>Privacy Notice:</strong>
+                No data is stored or tracked. Everything stays in your browser session.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Questions --%>
+      <div class="space-y-6" id="questions-container">
+        <%= for {question, index} <- Enum.with_index(@questions) do %>
+          <div class="card card-bordered bg-base-100 shadow-md" id={"question-card-#{index}"}>
+            <div class="card-body">
+              <h2 class="card-title">Question {index + 1}</h2>
+              <p class="text-lg mb-4">{question.question}</p>
+
+              <%!-- Options --%>
+              <div class="form-control space-y-2 mb-4">
+                <%= for option <- AiQuizzer.Quiz.Question.options(question) do %>
+                  <label class="label cursor-pointer justify-start gap-4 hover:bg-base-200 p-3 rounded-lg transition-colors">
+                    <input
+                      type="radio"
+                      name={"question-#{index}"}
+                      class="radio radio-primary"
+                      value={option}
+                      checked={get_in(@user_answers, [index, :option]) == option}
+                      phx-click="select_option"
+                      phx-value-index={index}
+                      phx-value-option={option}
+                    />
+                    <span class="label-text flex-1">{option}</span>
+                  </label>
+                <% end %>
+              </div>
+
+              <%!-- Justification --%>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text font-semibold">Your Justification</span>
+                </label>
+                <textarea
+                  class="textarea textarea-bordered textarea-lg"
+                  placeholder="Explain why you chose this answer..."
+                  rows="4"
+                  phx-blur="update_justification"
+                  phx-value-index={index}
+                >{get_in(@user_answers, [index, :justification]) || ""}</textarea>
+              </div>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <%!-- Submit Button --%>
+      <div class="flex justify-center mt-8">
+        <button
+          class={[
+            "btn btn-lg",
+            if(@submission_enabled, do: "btn-primary", else: "btn-disabled")
+          ]}
+          phx-click="submit_quiz"
+          disabled={!@submission_enabled}
+          id="submit-quiz-btn"
+        >
+          Submit Quiz
+        </button>
+      </div>
+    <% else %>
+      <%!-- Results Mode --%>
+      <div class="mb-8">
+        <h1 class="text-4xl font-bold text-center mb-4">Quiz Results</h1>
+        <p class="text-center text-lg mb-6">Review the correct answers and explanations below.</p>
+      </div>
+
+      <%!-- Results --%>
+      <div class="space-y-6" id="results-container">
+        <%= for {question, index} <- Enum.with_index(@questions) do %>
+          <div class="card card-bordered bg-base-100 shadow-md" id={"result-card-#{index}"}>
+            <div class="card-body">
+              <h2 class="card-title">Question {index + 1}</h2>
+              <p class="text-lg mb-4">{question.question}</p>
+
+              <%!-- Correct Answer --%>
+              <div class="alert alert-success mb-4">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  class="stroke-current shrink-0 w-6 h-6"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  >
+                  </path>
+                </svg>
+                <div>
+                  <h3 class="font-bold">Correct Answer:</h3>
+                  <p>{question.correct_answer}</p>
+                </div>
+              </div>
+
+              <%!-- Explanation --%>
+              <div>
+                <h3 class="font-bold text-lg mb-2">Explanation:</h3>
+                <p class="text-base leading-relaxed">{question.motivation}</p>
+              </div>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <%!-- Action Buttons --%>
+      <div class="flex justify-center mt-8 gap-4">
+        <button
+          class="btn btn-primary btn-lg"
+          phx-click="new_quiz"
+          id="new-quiz-btn"
+        >
+          Take Another Quiz
+        </button>
+      </div>
+    <% end %>
+  </div>
+</Layouts.app>
